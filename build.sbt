@@ -9,3 +9,9 @@ libraryDependencies ++= Seq(
 )
 
 scalacOptions ++= Seq("-unchecked", "-deprecation")
+
+seq(ProguardPlugin.proguardSettings :_*)
+
+proguardOptions += keepMain("findclass.Main")
+
+proguardOptions += "-dontnote scala.Enumeration"
