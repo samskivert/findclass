@@ -50,4 +50,18 @@ class Tests
                      ("Bizzle", "foo.bar.Foo.Bizzle", 9), ("Bangle", "foo.bar.Foo.Bangle", 10)),
                  parse(new StringReader(code), ".scala").types)
   }
+
+  @Test def testImportToPackage {
+    assertEquals("foo.bar", importToPackage("foo.bar.Baz"))
+    assertEquals("foo.bar", importToPackage("foo.bar.Baz.Bizzle"))
+  }
+
+  @Test def testSharedPrefix {
+    assertEquals("foo.bar", sharedPrefix("foo.bar.baz", "foo.bar.bizzle"))
+    assertEquals("foo", sharedPrefix("foo.baz", "foo.bar.bizzle"))
+    assertEquals("", sharedPrefix("bar.baz", "foo.bar.bizzle"))
+    assertEquals("", sharedPrefix("", "foo.bar.bizzle"))
+    assertEquals("", sharedPrefix("foo", ""))
+    assertEquals("", sharedPrefix("foo", "foozle"))
+  }
 }

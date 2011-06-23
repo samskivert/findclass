@@ -70,6 +70,15 @@ object Main
   val homeDir = System.getProperty("user.home")
   def expandTwiddle (path :String) = path.replace("~", homeDir)
 
+  // creates a sanely configured stream tokenizer
+  def toker (reader :Reader) = {
+    val tok = new StreamTokenizer(new BufferedReader(reader))
+    tok.ordinaryChar('/') // wtf do they call this a comment char by default?
+    tok.slashSlashComments(true)
+    tok.slashStarComments(true)
+    tok
+  }
+
   // does the actual finding of a class
   def findClass (classname :String, refFile :File, opts :Opts) {
     // find the project root and any .findclass.path file in the project
@@ -210,12 +219,71 @@ object Main
     }
   }
 
+  // bits used by computeImportInfo to grok a file's existing imports
+  val PostPackageRe = "\\.[A-Z].*".r
+  def importToPackage (impline :String) = PostPackageRe.replaceFirstIn(impline, "")
+  def sharedPrefix (pkgA :String, pkgB :String) =
+    pkgA.split("\\.") zip(pkgB.split("\\.")) takeWhile(t => t._1 == t._2) map(_._1) mkString(".")
+  case class ImportGroup (lineno :Int) {
+    val imports = ArrayBuffer[String]()
+    lazy val prefix = imports map(importToPackage) reduceLeft(sharedPrefix)
+    def matchLength (pkg :String) = sharedPrefix(prefix, pkg).length
+  }
+
   // extracts the fully qualified name for an import and then determines exactly where and how it
   // should be inserted into the reference file; will yield output of the form:
   // match fqClassName lineNo [<nil>|blank|postblank]
   def computeImportInfo (classname :String, refFile :File, m :Match) = {
-    // TODO: determine insertion line
-    "match " + m.fqName + " " + m.lineno
+    // read the reference file and determine what line at which to insert our import
+    var pkgLine = -1
+    val igroups = ArrayBuffer[ImportGroup]()
+    var accumg :ImportGroup = null
+    var sawClass = false
+
+    // parse the input groups in the file
+    val kinds = kindsBySuff.getOrElse(suffix(refFile.getName), Set[String]())
+    val tok = toker(new FileReader(refFile))
+    tok.eolIsSignificant(true)
+    while (!sawClass && tok.nextToken() != StreamTokenizer.TT_EOF) {
+      if (tok.ttype == StreamTokenizer.TT_WORD) {
+        // note the last time we see package appear in the file
+        if (tok.sval == "package") pkgLine = tok.lineno
+
+        if (tok.sval == "import") {
+          if (accumg == null) {
+            accumg = ImportGroup(tok.lineno)
+            igroups += accumg
+          }
+          tok.nextToken() // read the next token which should a package of some sort
+          if (tok.sval == "static") tok.nextToken() // skip 'static' in Java static imports
+          accumg.imports += tok.sval
+        }
+
+        // if we see a class, etc. declaration, stop parsing import groups
+        sawClass = kinds(tok.sval)
+
+      } else if (tok.ttype == StreamTokenizer.TT_EOL) {
+        // if we see a blank line (EOL + EOL), clear out any accumulating import group
+        if (tok.nextToken() == StreamTokenizer.TT_EOL) accumg = null
+        else tok.pushBack()
+      }
+    }
+
+    val ipkg = importToPackage(m.fqName)
+    if (igroups.isEmpty) {
+      "match " + m.fqName + " " + pkgLine + " postblank"
+    } else {
+      val best = igroups maxBy(_.matchLength(ipkg))
+      if (best.imports contains(m.fqName)) {
+        "notneeded"
+      } else if (best.matchLength(ipkg) == 0) {
+        // TODO: no matching group, so figure out where to insert based on collation between groups
+        "match " + m.fqName + " " + best.lineno + " blank"
+      } else {
+        // TODO: determine position within this import group
+        "match " + m.fqName + " " + best.lineno + " noblank"
+      }
+    }
   }
 
   // represents a component of a compilation unit; could be a package or type
@@ -240,12 +308,7 @@ object Main
 
   def parse (reader :Reader, suff :String) :Component = {
     val kinds = kindsBySuff.getOrElse(suff, Set[String]())
-
-    val tok = new StreamTokenizer(new BufferedReader(reader))
-    tok.ordinaryChar('/') // wtf do they call this a comment char by default?
-    tok.slashSlashComments(true)
-    tok.slashStarComments(true)
-
+    val tok = toker(reader)
     val stack = MStack[Component]()
     val root = new RootComponent
     var accum :Component = root
