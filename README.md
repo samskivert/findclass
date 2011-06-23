@@ -34,27 +34,27 @@ low price of a 50% overall reduction in productivity.
 
 2. Put the following in your .emacs file:
 
-    (load "WHEREVER/findclass.el")
-    (set-variable 'findclass-jar "WHEREVER/findclass.jar")
+        (load "WHEREVER/findclass.el")
+        (set-variable 'findclass-jar "WHEREVER/findclass.jar")
 
-    ;; obviously tweak these key-combinations to taste
-    (defun findclass-java-mode-hook ()
-      (define-key java-mode-map "\C-c\C-i" 'import-class-at-symbol)
-      (define-key java-mode-map "\C-c\C-j" 'open-class-at-symbol)
-      )
-    (add-hook 'java-mode-hook 'findclass-java-mode-hook);
+        ;; obviously tweak these key-combinations to taste
+        (defun findclass-java-mode-hook ()
+          (define-key java-mode-map "\C-c\C-i" 'import-class-at-symbol)
+          (define-key java-mode-map "\C-c\C-j" 'open-class-at-symbol)
+          )
+        (add-hook 'java-mode-hook 'findclass-java-mode-hook);
 
-    ;; if you use scala or actionscript, throw those in as well
-    (defun findclass-scala-mode-hook ()
-      (define-key scala-mode-map "\C-c\C-i" 'import-class-at-symbol)
-      (define-key scala-mode-map "\C-c\C-j" 'open-class-at-symbol)
-      )
-    (add-hook 'scala-mode-hook 'findclass-scala-mode-hook);
-    (defun findclass-actionscript-mode-hook ()
-      (define-key actionscript-mode-map "\C-c\C-i" 'import-class-at-symbol)
-      (define-key actionscript-mode-map "\C-c\C-j" 'open-class-at-symbol)
-      )
-    (add-hook 'actionscript-mode-hook 'findclass-actionscript-mode-hook);
+        ;; if you use scala or actionscript, throw those in as well
+        (defun findclass-scala-mode-hook ()
+          (define-key scala-mode-map "\C-c\C-i" 'import-class-at-symbol)
+          (define-key scala-mode-map "\C-c\C-j" 'open-class-at-symbol)
+          )
+        (add-hook 'scala-mode-hook 'findclass-scala-mode-hook);
+        (defun findclass-actionscript-mode-hook ()
+          (define-key actionscript-mode-map "\C-c\C-i" 'import-class-at-symbol)
+          (define-key actionscript-mode-map "\C-c\C-j" 'open-class-at-symbol)
+          )
+        (add-hook 'actionscript-mode-hook 'findclass-actionscript-mode-hook);
 
 3. Edit a file and feel the power of your new navigational abilities.
 
