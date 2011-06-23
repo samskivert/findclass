@@ -119,6 +119,59 @@ object Main
     None
   }
 
+  // a regular expression that matches a package declaration
+  val PackageRe = "package\\s+(\\S+)".r
+
+  // a regular expression that matches a class declaration
+  val ClassRe = "class\\s+(\\S+)".r
+
+  // an iterator that filters block comments from an underlying string iterator;
+  // doesn't handle nested block comments
+  class CommentFilterer (iter :Iterator[String]) extends Iterator[String] {
+    var _next :String = null
+    var _inComment = false
+    skipComments()
+
+    override def hasNext = (_next != null)
+
+    override def next () = {
+      if (!hasNext) throw new NoSuchElementException
+      val n = _next
+      skipComments()
+      n
+    }
+
+    private def skipComments () {
+      _next = null
+      while (_next == null && iter.hasNext) {
+        val n = iter.next
+        if (_inComment) {
+          val cend = n.indexOf("*/")
+          if (n != -1) {
+            _next = n.substring(cend+2)
+          }
+        } else {
+          val cstart = n.indexOf("/*");
+          if (cstart != -1) {
+            _next = n.substring(0, cstart);
+            _inComment = true
+          } else {
+            _next = n
+          }
+        }
+      }
+    }
+  }
+
+  def extractFQName (file :File, classname :String) :Option[String] = {
+    var pkg = null
+    var cname = null
+    val lines = Source.fromFile(file)
+    while (lines.hasNext) {
+    }
+    None
+  }
+
   // directories to skip when searching
   val skipDirs = Set(".", "..", "CVS", ".subversion", ".git", ".hg")
 
