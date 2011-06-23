@@ -17,33 +17,45 @@ object Main
 {
   val usage = "Usage: findclass [-debug] [-import] [-rebuild] classname reference_file";
 
-  // a case class encapsulating our options and a constructor function
-  case class Opts (debug :Boolean, doImport :Boolean, doRebuild :Boolean)
-  def parseOpts (flags :Set[String]) =
-    Opts(flags("-debug"), flags("-import"), flags("-rebuild"))
-
   def main (args :Array[String]) {
     val (flags, rargs) = args.partition(_ startsWith "-")
     val opts = parseOpts(flags.toSet)
     rargs match {
       // lowercase our classname to simplify string compares later
       case Array(cname, rfile) =>
-        findClass(cname.toLowerCase, new File(rfile).getCanonicalFile, opts)
+        findClass(cname.toLowerCase, new File(expandTwiddle(rfile)).getCanonicalFile, opts)
       case _ => println(usage)
     }
   }
 
+  // a case class encapsulating our options and a constructor function
+  case class Opts (doImport :Boolean, doRebuild :Boolean)
+  def parseOpts (flags :Set[String]) = {
+    showDebug = flags("-debug")
+    Opts(flags("-import"), flags("-rebuild"))
+  }
+
+  // a simple logging mechanism
+  var showDebug = false
+  def debug (msg :String) :Unit = if (showDebug) System.err.println("DEBUG: " + msg)
+  def warning (msg :String) :Unit = System.err.println("WARN: " + msg)
+
   // represents a class name matched in a file
   case class Match (file :File, fqName :String, lineno :Int)
+
+  // returns path and index files given the specified parent directory
+  def pathFile (parent :File) = new File(parent, ".findclass.path")
+  def indexFile (parent :File) = new File(parent, ".findclass.cache")
 
   // does the actual finding of a class
   def findClass (classname :String, refFile :File, opts :Opts) {
     // find the project root and any .findclass.path file in the project
     val (proot, pfcpath) = findRoot(refFile.getParentFile)
+    debug("Finding class '" + classname + "' in " + proot)
 
     // locate the .findclass.path in our home directory, if one exists
     val home = new File(System.getProperty("user.home"))
-    val hfcpath = fileToOpt(new File(home, ".findclass.path"))
+    val hfcpath = fileToOpt(pathFile(home))
 
     // consolidate our zero, one or two fcpath files into a list
     val fcpaths = List(pfcpath, hfcpath).flatten.distinct
@@ -73,7 +85,7 @@ object Main
     var fcpath = None :Option[File]
     var cdir = sdir
     while (cdir != null && !fcpath.isDefined) {
-      val cfcpath = new File(cdir, ".findclass.path")
+      val cfcpath = pathFile(cdir)
       if (cfcpath.exists) {
         fcpath = Some(cfcpath)
       }
@@ -90,6 +102,10 @@ object Main
   // returns Some(file) if the file exists, or None
   def fileToOpt (file :File) = if (file.exists) Some(file) else None
 
+  // allow ~ in paths like a good unix utility
+  val homeDir = System.getProperty("user.home")
+  def expandTwiddle (path :String) = path.replace("~", homeDir)
+
   // looks for a build file or src directory to indicate that we're in the project root
   def isProjectRoot (dir :File) =
     List("src", "build.xml", "pom.xml", "build.sbt", "Makefile") exists(
@@ -98,21 +114,25 @@ object Main
   // rebuilds the .findclass.index file for the supplied .findclass.path file
   def rebuildIndex (fcpath :File) {
     val homeDir = System.getProperty("user.home")
-    val paths = Source.fromFile(fcpath).getLines.map(_.replace("~", homeDir))
+    val paths = Source.fromFile(fcpath).getLines.map(expandTwiddle)
 
-    val fcindex = new File(fcpath.getParentFile, ".findclass.cache")
+    val fcindex = indexFile(fcpath.getParentFile)
     val out = new BufferedWriter(new FileWriter(fcindex))
     try {
-      paths map(new File(_)) foreach scanAndIndex(out)
+      val (good, bad) = paths map(new File(_)) partition(_.exists)
+      bad foreach { d => warning(fcpath + " contains non-existent " + d) }
+      good foreach scanAndIndex(out)
     } finally {
       out.close
     }
   }
 
   def scanAndIndex (out :BufferedWriter)(pdir :File) {
+    debug("Rebuilding index: " + pdir)
+
     val (dirs, files) = pdir.listFiles partition(_.isDirectory)
 
-    files filter(f => kindsBySuff.contains(suffix(f.getName))) foreach { f =>
+    files filter(isSource) foreach { f =>
       val fpath = f.getCanonicalPath
       try {
         parse(f).types foreach { case (name, fqName, lineno) =>
@@ -130,9 +150,9 @@ object Main
   // searches the index file corresponding to the supplied fcpath file for the specified classname;
   // if the index doesn't exist, it is built
   def checkIndex (fcpath :File)(classname :String) :Option[Match] = {
-    println("Checking index " + fcpath)
+    debug("Checking index: " + fcpath)
 
-    val fcindex = new File(fcpath.getParentFile, ".findclass.cache")
+    val fcindex = indexFile(fcpath.getParentFile)
     if (!fcindex.exists) {
       rebuildIndex(fcpath)
     }
@@ -238,11 +258,11 @@ object Main
                         ".scala" -> Set("class", "object", "trait"),
                         ".as"    -> Set("class", "interface"))
 
+  // returns true if the supplied file is a source file that we grok
+  def isSource (file :File) = kindsBySuff.contains(suffix(file.getName))
+
   // directories to skip when searching
   val skipDirs = Set(".", "..", "CVS", ".svn", ".git", ".hg")
-
-  // suffixes that identiy source files
-  val sourceSuffs = Set(".java", ".groovy", ".scala", ".cs", ".as")
 
   // extracts the suffix from a filename (.java for Foo.java)
   def suffix (name :String) = name.lastIndexOf(".") match {
@@ -251,15 +271,28 @@ object Main
   }
 
   def searchProject (rootDir :File)(classname :String) :Option[Match] = {
-    println("Searching project " + rootDir)
-    // searched += inDir
-    // val (dirs, files) = inDir.listFiles partition(_.isDirectory)
+    debug("Searching project: " + rootDir)
 
-    // // see if any files in this directory define our class
-    // val local = for (f <- files
-    //                  if (sourceSuffs(suffix(f.getName)));
-    //                  m <- defines(f, classname)) yield m
+    val searched = MSet[File]()
 
-    None
+    def search (dir :File) :Option[Match] = {
+      searched += dir
+      val (dirs, files) = dir.listFiles partition(_.isDirectory)
+
+      // see if any files in this directory define our class
+      files filter(isSource) foreach { f =>
+        try {
+          parse(f).types foreach { case (name, fqName, lineno) =>
+            if (name.toLowerCase == classname) return Some(Match(f, fqName, lineno))
+          }
+        } catch {
+          case e :Exception => System.err.println("Failed to parse " + f + ": " +e)
+        }
+      }
+
+      dirs.view flatMap(search) collectFirst { case x => x }
+    }
+
+    search(rootDir)
   }
 }
