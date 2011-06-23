@@ -30,7 +30,7 @@ low price of a 50% overall reduction in productivity.
 
 ## Quick start
 
-1. Download `findclass.jar` and `findclass.el` and stick them somewhere.
+1. Download [findclass.jar] and [findclass.el] and stick them somewhere.
 
 2. Put the following in your .emacs file:
 
@@ -99,3 +99,6 @@ You might be wondering why this example enumerates the subdirectories. This is
 because findclass returns the first type it can find with the requested name.
 So if you want `java.util.List` rather than `java.awt.List` when you ask for
 `List`, then you must order your to-be-searched directories accordingly.
+
+[findclass.jar]: https://raw.github.com/samskivert/findclass/master/bin/findclass.jar
+[findclass.el]: https://raw.github.com/samskivert/findclass/master/src/main/elisp/findclass.el
