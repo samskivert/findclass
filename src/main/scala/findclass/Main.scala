@@ -3,10 +3,10 @@
 
 package findclass
 
-import java.io.File
+import java.io.{File, BufferedReader, FileReader, Reader, StreamTokenizer}
 
 import scala.io.Source
-import scala.collection.mutable.{ArrayBuffer, Set => MSet}
+import scala.collection.mutable.{ArrayBuffer, Set => MSet, Stack => MStack}
 
 /**
  * The basis for a poor man's Java/Scala/ActionScript IDE, in the style of ctags, but hand rolled
@@ -33,7 +33,7 @@ object Main
   }
 
   // represents a class name matched in a file
-  case class Match (file :File, lineno :Int)
+  case class Match (file :File, fqName :String, lineno :Int)
 
   // does the actual finding of a class
   def findClass (classname :String, refFile :File, opts :Opts) {
@@ -45,7 +45,8 @@ object Main
     val hfcpath = fileToOpt(new File(home, ".findclass.path"))
 
     // consolidate our zero, one or two fcpath files into a list
-    val fcpaths = List(pfcpath, hfcpath).flatten
+    val fcpaths = List(pfcpath, hfcpath).flatten.distinct
+    print("FCPaths " + fcpaths)
 
     // if an index rebuild was requested, do so now
     if (opts.doRebuild) {
@@ -60,7 +61,7 @@ object Main
     finders.view flatMap(f => f(classname)) collectFirst { case x => x } match {
       case None => println("nomatch")
       case Some(m) => {
-        if (opts.doImport) println()
+        if (opts.doImport) println(computeImportInfo(classname, refFile, m))
         else println("match " + m.file.getPath + " " + m.lineno)
       }
     }
@@ -97,6 +98,10 @@ object Main
   // rebuilds the .findclass.index file for the supplied .findclass.path file
   def rebuildIndex (fcpath :File) {
     println("Rebuilding index in " + fcpath.getParentFile)
+
+    val homeDir = System.getProperty("user.home")
+    val paths = Source.fromFile(fcpath).getLines.map(_.replace("~", homeDir))
+    println("Paths " + paths.mkString("\n"))
   }
 
   // searches the index file corresponding to the supplied fcpath file for the specified classname;
@@ -111,66 +116,101 @@ object Main
 
     // oh, I'm so imperative!
     for (l <- Source.fromFile(ifile).getLines) {
-      val Array(path, clazz, lineno) = l.split(":")
-      if (clazz == classname) {
-        return Some(Match(new File(path), lineno.toInt))
-      }
-    }
-    None
-  }
-
-  // a regular expression that matches a package declaration
-  val PackageRe = "package\\s+(\\S+)".r
-
-  // a regular expression that matches a class declaration
-  val ClassRe = "class\\s+(\\S+)".r
-
-  // an iterator that filters block comments from an underlying string iterator;
-  // doesn't handle nested block comments
-  class CommentFilterer (iter :Iterator[String]) extends Iterator[String] {
-    var _next :String = null
-    var _inComment = false
-    skipComments()
-
-    override def hasNext = (_next != null)
-
-    override def next () = {
-      if (!hasNext) throw new NoSuchElementException
-      val n = _next
-      skipComments()
-      n
-    }
-
-    private def skipComments () {
-      _next = null
-      while (_next == null && iter.hasNext) {
-        val n = iter.next
-        if (_inComment) {
-          val cend = n.indexOf("*/")
-          if (n != -1) {
-            _next = n.substring(cend+2)
-          }
-        } else {
-          val cstart = n.indexOf("/*");
-          if (cstart != -1) {
-            _next = n.substring(0, cstart);
-            _inComment = true
-          } else {
-            _next = n
-          }
+      try {
+        val Array(path, clazz, fqName, lineno) = l.split(":")
+        if (clazz == classname) {
+          return Some(Match(new File(path), fqName, lineno.toInt))
         }
+      } catch {
+        case e :MatchError => // skip malformed line
       }
-    }
-  }
-
-  def extractFQName (file :File, classname :String) :Option[String] = {
-    var pkg = null
-    var cname = null
-    val lines = Source.fromFile(file)
-    while (lines.hasNext) {
     }
     None
   }
+
+  // extracts the fully qualified name for an import and then determines exactly where and how it
+  // should be inserted into the reference file; will yield output of the form:
+  // match fqClassName lineNo [<nil>|blank|postblank]
+  def computeImportInfo (classname :String, refFile :File, m :Match) = {
+    // TODO: determine insertion line
+    "match " + m.fqName + " " + m.lineno
+  }
+
+  // represents a component of a compilation unit; could be a package or type
+  case class Component (name :String, parent :Component, isType :Boolean, lineno :Int) {
+    val members = ArrayBuffer[Component]()
+    def fqName :String = parent.mkFqName(name)
+    def dump (indent :String = "") {
+      println(indent + name)
+      members foreach { _.dump(indent + "  ") }
+    }
+    def types :Seq[(String,Int)] =
+      (if (isType) Seq(fqName -> lineno) else Seq()) ++ members.flatMap(_.types)
+    protected def mkFqName (child :String) :String = parent.mkFqName(name + "." + child)
+  }
+  object RootComponent extends Component("<root>", null, false, -1) {
+    override def mkFqName (child :String) = child
+  }
+
+  def parse (file :File) :Component = parse(new FileReader(file), suffix(file.getName))
+
+  def parse (reader :Reader, suff :String) :Component = {
+    val kinds = kindsBySuff.getOrElse(suff, Set[String]())
+
+    val tok = new StreamTokenizer(new BufferedReader(reader))
+    tok.slashSlashComments(true)
+    tok.slashStarComments(true)
+
+    val stack = MStack[Component]()
+    val root = RootComponent
+    var accum :Component = root
+    var last :Component = null
+    var prevtok :String = null
+    var skipped = 0
+
+    while (tok.nextToken() != StreamTokenizer.TT_EOF) {
+      if (tok.ttype == '{') {
+        if (last != null) {
+          stack.push(accum)
+          accum = last
+          last = null
+        } else {
+          skipped += 1
+        }
+      } else if (tok.ttype == '}') {
+        last = null
+        if (skipped == 0) {
+          accum = stack.pop()
+        } else {
+          skipped -= 1
+        }
+      } else if (tok.ttype == StreamTokenizer.TT_WORD) {
+        if (prevtok == "package") {
+          last = Component(tok.sval, accum, false, tok.lineno)
+          accum.members += last
+          // if the next token is a semicolon, pretend the rest of the file is one big block
+          if (tok.nextToken() == ';') {
+            stack.push(accum)
+            accum = last
+            last = null
+          } else {
+            tok.pushBack()
+          }
+        } else if (kinds(prevtok)) {
+          last = Component(tok.sval, accum, true, tok.lineno)
+          accum.members += last
+        }
+        prevtok = tok.sval
+      }
+    }
+
+    root
+  }
+
+  // tokens taht will appear prior to a type declaration by language file suffix
+  val kindsBySuff = Map(".java"  -> Set("class", "enum", "interface", "@interface"),
+                        ".scala" -> Set("class", "object", "trait"),
+                        ".as"    -> Set("class", "interface"))
 
   // directories to skip when searching
   val skipDirs = Set(".", "..", "CVS", ".subversion", ".git", ".hg")
@@ -182,15 +222,6 @@ object Main
   def suffix (name :String) = name.lastIndexOf(".") match {
     case -1 => ""
     case idx => name.substring(idx)
-  }
-
-  def defines (file :File, classname :String) :Option[Match] = {
-    println("searching " + file)
-    var lineno = 0
-    for (l <- Source.fromFile(file)) {
-      lineno += 1
-    }
-    None
   }
 
   def searchProject (rootDir :File)(classname :String) :Option[Match] = {
