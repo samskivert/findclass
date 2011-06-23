@@ -3,7 +3,8 @@
 
 package findclass
 
-import java.io.{File, BufferedReader, FileReader, Reader, StreamTokenizer}
+import java.io.{File, Reader, StreamTokenizer}
+import java.io.{BufferedReader, FileReader, BufferedWriter, FileWriter}
 
 import scala.io.Source
 import scala.collection.mutable.{ArrayBuffer, Set => MSet, Stack => MStack}
@@ -46,7 +47,6 @@ object Main
 
     // consolidate our zero, one or two fcpath files into a list
     val fcpaths = List(pfcpath, hfcpath).flatten.distinct
-    print("FCPaths " + fcpaths)
 
     // if an index rebuild was requested, do so now
     if (opts.doRebuild) {
@@ -97,11 +97,34 @@ object Main
 
   // rebuilds the .findclass.index file for the supplied .findclass.path file
   def rebuildIndex (fcpath :File) {
-    println("Rebuilding index in " + fcpath.getParentFile)
-
     val homeDir = System.getProperty("user.home")
     val paths = Source.fromFile(fcpath).getLines.map(_.replace("~", homeDir))
-    println("Paths " + paths.mkString("\n"))
+
+    val fcindex = new File(fcpath.getParentFile, ".findclass.cache")
+    val out = new BufferedWriter(new FileWriter(fcindex))
+    try {
+      paths map(new File(_)) foreach scanAndIndex(out)
+    } finally {
+      out.close
+    }
+  }
+
+  def scanAndIndex (out :BufferedWriter)(pdir :File) {
+    val (dirs, files) = pdir.listFiles partition(_.isDirectory)
+
+    files filter(f => kindsBySuff.contains(suffix(f.getName))) foreach { f =>
+      val fpath = f.getCanonicalPath
+      try {
+        parse(f).types foreach { case (name, fqName, lineno) =>
+          out.write(fpath + ":" + name.toLowerCase + ":" + fqName + ":" + lineno)
+          out.newLine()
+        }
+      } catch {
+        case e => System.err.println("Failed to parse " + fpath + ": " +e)
+      }
+    }
+
+    dirs filterNot(d => skipDirs(d.getName)) foreach scanAndIndex(out)
   }
 
   // searches the index file corresponding to the supplied fcpath file for the specified classname;
@@ -109,13 +132,13 @@ object Main
   def checkIndex (fcpath :File)(classname :String) :Option[Match] = {
     println("Checking index " + fcpath)
 
-    val ifile = new File(fcpath.getParentFile, ".findclass.cache")
-    if (!ifile.exists) {
+    val fcindex = new File(fcpath.getParentFile, ".findclass.cache")
+    if (!fcindex.exists) {
       rebuildIndex(fcpath)
     }
 
     // oh, I'm so imperative!
-    for (l <- Source.fromFile(ifile).getLines) {
+    for (l <- Source.fromFile(fcindex).getLines) {
       try {
         val Array(path, clazz, fqName, lineno) = l.split(":")
         if (clazz == classname) {
@@ -144,25 +167,28 @@ object Main
       println(indent + name)
       members foreach { _.dump(indent + "  ") }
     }
-    def types :Seq[(String,Int)] =
-      (if (isType) Seq(fqName -> lineno) else Seq()) ++ members.flatMap(_.types)
+    def types :Seq[(String, String,Int)] =
+      (if (isType) Seq(Tuple3(name, fqName, lineno)) else Seq()) ++ members.flatMap(_.types)
     protected def mkFqName (child :String) :String = parent.mkFqName(name + "." + child)
   }
-  object RootComponent extends Component("<root>", null, false, -1) {
+  class RootComponent extends Component("<root>", null, false, -1) {
     override def mkFqName (child :String) = child
   }
 
-  def parse (file :File) :Component = parse(new FileReader(file), suffix(file.getName))
+  def parse (file :File) :Component = {
+    parse(new FileReader(file), suffix(file.getName))
+  }
 
   def parse (reader :Reader, suff :String) :Component = {
     val kinds = kindsBySuff.getOrElse(suff, Set[String]())
 
     val tok = new StreamTokenizer(new BufferedReader(reader))
+    tok.ordinaryChar('/') // wtf do they call this a comment char by default?
     tok.slashSlashComments(true)
     tok.slashStarComments(true)
 
     val stack = MStack[Component]()
-    val root = RootComponent
+    val root = new RootComponent
     var accum :Component = root
     var last :Component = null
     var prevtok :String = null
@@ -213,7 +239,7 @@ object Main
                         ".as"    -> Set("class", "interface"))
 
   // directories to skip when searching
-  val skipDirs = Set(".", "..", "CVS", ".subversion", ".git", ".hg")
+  val skipDirs = Set(".", "..", "CVS", ".svn", ".git", ".hg")
 
   // suffixes that identiy source files
   val sourceSuffs = Set(".java", ".groovy", ".scala", ".cs", ".as")

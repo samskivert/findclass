@@ -25,7 +25,8 @@ class Tests
         }
       }
       """;
-    assertEquals(Seq(("foo.b.Foozle", 6), ("foo.b.Foozle.Barzle", 7), ("foo.b.Foozle.Bizzle", 8)),
+    assertEquals(Seq(("Foozle", "foo.b.Foozle", 6), ("Barzle", "foo.b.Foozle.Barzle", 7),
+                     ("Bizzle", "foo.b.Foozle.Bizzle", 8)),
                  parse(new StringReader(code), ".java").types)
   }
 
@@ -45,8 +46,8 @@ class Tests
         }
       }
       """;
-    assertEquals(Seq(("foo.bar.Foo", 6), ("foo.bar.Foo.Barzle", 7), ("foo.bar.Foo.Bizzle", 9),
-                     ("foo.bar.Foo.Bangle", 10)),
+    assertEquals(Seq(("Foo", "foo.bar.Foo", 6), ("Barzle", "foo.bar.Foo.Barzle", 7),
+                     ("Bizzle", "foo.bar.Foo.Bizzle", 9), ("Bangle", "foo.bar.Foo.Bangle", 10)),
                  parse(new StringReader(code), ".scala").types)
   }
 }
