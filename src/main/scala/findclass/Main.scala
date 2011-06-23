@@ -65,12 +65,8 @@ object Main
       fcpaths foreach rebuildIndex
     }
 
-    // create a list of actions to try successively to find the class, and run them
-    val finders = Seq[String => Option[Match]]() ++
-      fcpaths.map(p => checkIndex(p) _) ++
-      List(searchProject(proot) _)
-
-    finders.view flatMap(f => f(classname)) collectFirst { case x => x } match {
+    // first try searching the indices; if that fails, try searching the project directly
+    mapFirst(fcpaths, checkIndex(classname)) orElse searchProject(classname)(proot)  match {
       case None => println("nomatch")
       case Some(m) => {
         if (opts.doImport) println(computeImportInfo(classname, refFile, m))
@@ -140,16 +136,16 @@ object Main
           out.newLine()
         }
       } catch {
-        case e => System.err.println("Failed to parse " + fpath + ": " +e)
+        case e => warning("Failed to parse " + fpath + ": " +e)
       }
     }
 
-    dirs filterNot(d => skipDirs(d.getName)) foreach scanAndIndex(out)
+    dirs filterNot(isSkipDir) foreach scanAndIndex(out)
   }
 
   // searches the index file corresponding to the supplied fcpath file for the specified classname;
   // if the index doesn't exist, it is built
-  def checkIndex (fcpath :File)(classname :String) :Option[Match] = {
+  def checkIndex (classname :String)(fcpath :File) :Option[Match] = {
     debug("Checking index: " + fcpath)
 
     val fcindex = indexFile(fcpath.getParentFile)
@@ -253,7 +249,7 @@ object Main
     root
   }
 
-  // tokens taht will appear prior to a type declaration by language file suffix
+  // tokens that will appear prior to a type declaration by language file suffix
   val kindsBySuff = Map(".java"  -> Set("class", "enum", "interface", "@interface"),
                         ".scala" -> Set("class", "object", "trait"),
                         ".as"    -> Set("class", "interface"))
@@ -262,7 +258,8 @@ object Main
   def isSource (file :File) = kindsBySuff.contains(suffix(file.getName))
 
   // directories to skip when searching
-  val skipDirs = Set(".", "..", "CVS", ".svn", ".git", ".hg")
+  val skipDirNames = Set(".", "..", "CVS", ".svn", ".git", ".hg")
+  def isSkipDir (dir :File) = skipDirNames(dir.getName)
 
   // extracts the suffix from a filename (.java for Foo.java)
   def suffix (name :String) = name.lastIndexOf(".") match {
@@ -270,29 +267,47 @@ object Main
     case idx => name.substring(idx)
   }
 
-  def searchProject (rootDir :File)(classname :String) :Option[Match] = {
+  // searches a project's source hierarchy directly (no cache files)
+  def searchProject (classname :String)(rootDir :File) :Option[Match] = {
     debug("Searching project: " + rootDir)
 
     val searched = MSet[File]()
-
     def search (dir :File) :Option[Match] = {
-      searched += dir
+      searched += dir // avoid double checking in the face of symlinks
       val (dirs, files) = dir.listFiles partition(_.isDirectory)
 
       // see if any files in this directory define our class
-      files filter(isSource) foreach { f =>
-        try {
-          parse(f).types foreach { case (name, fqName, lineno) =>
-            if (name.toLowerCase == classname) return Some(Match(f, fqName, lineno))
-          }
-        } catch {
-          case e :Exception => System.err.println("Failed to parse " + f + ": " +e)
-        }
+      val searchFiles = files filter(isSource)
+      // searchFiles.view flatMap(searchFile(classname)) collectFirst { case x => x } orElse {
+      mapFirst(searchFiles, searchFile(classname)) orElse {
+        // recurse down our subdirectories in search of the class
+        val searchDirs = dirs filterNot(isSkipDir) filterNot(searched) map(_.getCanonicalFile)
+        mapFirst(searchDirs, search)
       }
-
-      dirs.view flatMap(search) collectFirst { case x => x }
     }
 
     search(rootDir)
+  }
+
+  // searches a single file for the specified named class
+  def searchFile (classname :String)(file :File) :Option[Match] = {
+    try {
+      parse(file).types collectFirst {
+        case (name, fqName, lineno) if (name.toLowerCase == classname) =>
+          Match(file, fqName, lineno)
+      }
+    } catch {
+      case e => warning("Failed to parse " + file + ": " + e); None
+    }
+  }
+
+  // applies the mapping function to the supplied seq; returns first none-None, or None
+  def mapFirst[A,B] (seq :Seq[A], f :A => Option[B]) :Option[B] = {
+    val iter = seq.iterator
+    while (iter.hasNext) {
+      val r = f(iter.next)
+      if (r.isDefined) return r
+    }
+    None
   }
 }
