@@ -1,5 +1,6 @@
 //
-// $Id$
+// findclass - finds classes in source files
+// http://github.com/samskivert/findclass
 
 package findclass
 
@@ -8,6 +9,8 @@ import java.io.{BufferedReader, FileReader, BufferedWriter, FileWriter}
 
 import scala.io.Source
 import scala.collection.mutable.{ArrayBuffer, Set => MSet, Stack => MStack}
+
+import findclass.Util._
 
 /**
  * The basis for a poor man's Java/Scala/ActionScript IDE, in the style of ctags, but hand rolled
@@ -31,21 +34,41 @@ object Main
   // a case class encapsulating our options and a constructor function
   case class Opts (doImport :Boolean, doRebuild :Boolean)
   def parseOpts (flags :Set[String]) = {
-    showDebug = flags("-debug")
+    Util.showDebug = flags("-debug")
     Opts(flags("-import"), flags("-rebuild"))
   }
-
-  // a simple logging mechanism
-  var showDebug = false
-  def debug (msg :String) :Unit = if (showDebug) System.err.println("DEBUG: " + msg)
-  def warning (msg :String) :Unit = System.err.println("WARN: " + msg)
 
   // represents a class name matched in a file
   case class Match (file :File, fqName :String, lineno :Int)
 
+  // tokens that will appear prior to a type declaration by language file suffix
+  val kindsBySuff = Map(".java"  -> Set("class", "enum", "interface", "@interface"),
+                        ".scala" -> Set("class", "object", "trait"),
+                        ".as"    -> Set("class", "interface"))
+
+  // returns true if the supplied file is a source file that we grok
+  def isSource (file :File) = kindsBySuff.contains(suffix(file.getName))
+
+  // directories to skip when searching
+  val skipDirNames = Set(".", "..", "CVS", ".svn", ".git", ".hg")
+  def isSkipDir (dir :File) = skipDirNames(dir.getName)
+
+  // extracts the suffix from a filename (.java for Foo.java)
+  def suffix (name :String) = name.lastIndexOf(".") match {
+    case -1 => ""
+    case idx => name.substring(idx)
+  }
+
   // returns path and index files given the specified parent directory
   def pathFile (parent :File) = new File(parent, ".findclass.path")
   def indexFile (parent :File) = new File(parent, ".findclass.cache")
+
+  // returns Some(file) if the file exists, or None
+  def fileToOpt (file :File) = if (file.exists) Some(file) else None
+
+  // allow ~ in paths like a good unix utility
+  val homeDir = System.getProperty("user.home")
+  def expandTwiddle (path :String) = path.replace("~", homeDir)
 
   // does the actual finding of a class
   def findClass (classname :String, refFile :File, opts :Opts) {
@@ -66,7 +89,7 @@ object Main
     }
 
     // first try searching the indices; if that fails, try searching the project directly
-    mapFirst(fcpaths, checkIndex(classname)) orElse searchProject(classname)(proot)  match {
+    fcpaths mapFirst(checkIndex(classname)) orElse searchProject(classname)(proot)  match {
       case None => println("nomatch")
       case Some(m) => {
         if (opts.doImport) println(computeImportInfo(classname, refFile, m))
@@ -77,6 +100,11 @@ object Main
 
   // returns the project root directory and any .findclass.path file therein
   def findRoot (sdir :File) :(File, Option[File]) = {
+    // looks for a build file or src directory to indicate that we're in the project root
+    def isProjectRoot (dir :File) =
+      List("src", "build.xml", "pom.xml", "build.sbt", "Makefile") exists(
+        n => new File(dir, n).exists)
+
     var root = sdir
     var fcpath = None :Option[File]
     var cdir = sdir
@@ -95,18 +123,6 @@ object Main
     (root, fcpath)
   }
 
-  // returns Some(file) if the file exists, or None
-  def fileToOpt (file :File) = if (file.exists) Some(file) else None
-
-  // allow ~ in paths like a good unix utility
-  val homeDir = System.getProperty("user.home")
-  def expandTwiddle (path :String) = path.replace("~", homeDir)
-
-  // looks for a build file or src directory to indicate that we're in the project root
-  def isProjectRoot (dir :File) =
-    List("src", "build.xml", "pom.xml", "build.sbt", "Makefile") exists(
-      n => new File(dir, n).exists)
-
   // rebuilds the .findclass.index file for the supplied .findclass.path file
   def rebuildIndex (fcpath :File) {
     val homeDir = System.getProperty("user.home")
@@ -123,6 +139,7 @@ object Main
     }
   }
 
+  // scans a source file tree and writes all classes to the supplied writer
   def scanAndIndex (out :BufferedWriter)(pdir :File) {
     debug("Rebuilding index: " + pdir)
 
@@ -143,7 +160,7 @@ object Main
     dirs filterNot(isSkipDir) foreach scanAndIndex(out)
   }
 
-  // searches the index file corresponding to the supplied fcpath file for the specified classname;
+  // searches for the specified classname in the index file corresponding to the supplied fcpath;
   // if the index doesn't exist, it is built
   def checkIndex (classname :String)(fcpath :File) :Option[Match] = {
     debug("Checking index: " + fcpath)
@@ -153,18 +170,44 @@ object Main
       rebuildIndex(fcpath)
     }
 
-    // oh, I'm so imperative!
-    for (l <- Source.fromFile(fcindex).getLines) {
-      try {
-        val Array(path, clazz, fqName, lineno) = l.split(":")
-        if (clazz == classname) {
-          return Some(Match(new File(path), fqName, lineno.toInt))
-        }
-      } catch {
-        case e :MatchError => // skip malformed line
+    Source.fromFile(fcindex).getLines map(_.split(":")) collectFirst {
+      case Array(path, clazz, fqName, lineno) if (clazz == classname) =>
+        Match(new File(path), fqName, lineno.toInt)
+    }
+  }
+
+  // searches a project's source hierarchy directly (no cache files)
+  def searchProject (classname :String)(rootDir :File) :Option[Match] = {
+    debug("Searching project: " + rootDir)
+
+    val searched = MSet[File]()
+    def search (dir :File) :Option[Match] = {
+      searched += dir // avoid double checking in the face of symlinks
+      val (dirs, files) = dir.listFiles partition(_.isDirectory)
+
+      // see if any files in this directory define our class
+      val searchFiles = files filter(isSource)
+      // searchFiles.view flatMap(searchFile(classname)) collectFirst { case x => x } orElse {
+      searchFiles mapFirst(searchFile(classname)) orElse {
+        // recurse down our subdirectories in search of the class
+        val searchDirs = dirs filterNot(isSkipDir) filterNot(searched) map(_.getCanonicalFile)
+        searchDirs mapFirst(search)
       }
     }
-    None
+
+    search(rootDir)
+  }
+
+  // searches a single file for the specified named class
+  def searchFile (classname :String)(file :File) :Option[Match] = {
+    try {
+      parse(file).types collectFirst {
+        case (name, fqName, lineno) if (name.toLowerCase == classname) =>
+          Match(file, fqName, lineno)
+      }
+    } catch {
+      case e => warning("Failed to parse " + file + ": " + e); None
+    }
   }
 
   // extracts the fully qualified name for an import and then determines exactly where and how it
@@ -191,9 +234,9 @@ object Main
     override def mkFqName (child :String) = child
   }
 
-  def parse (file :File) :Component = {
+  // performs a very primitive form of source file parsing
+  def parse (file :File) :Component =
     parse(new FileReader(file), suffix(file.getName))
-  }
 
   def parse (reader :Reader, suff :String) :Component = {
     val kinds = kindsBySuff.getOrElse(suff, Set[String]())
@@ -247,67 +290,5 @@ object Main
     }
 
     root
-  }
-
-  // tokens that will appear prior to a type declaration by language file suffix
-  val kindsBySuff = Map(".java"  -> Set("class", "enum", "interface", "@interface"),
-                        ".scala" -> Set("class", "object", "trait"),
-                        ".as"    -> Set("class", "interface"))
-
-  // returns true if the supplied file is a source file that we grok
-  def isSource (file :File) = kindsBySuff.contains(suffix(file.getName))
-
-  // directories to skip when searching
-  val skipDirNames = Set(".", "..", "CVS", ".svn", ".git", ".hg")
-  def isSkipDir (dir :File) = skipDirNames(dir.getName)
-
-  // extracts the suffix from a filename (.java for Foo.java)
-  def suffix (name :String) = name.lastIndexOf(".") match {
-    case -1 => ""
-    case idx => name.substring(idx)
-  }
-
-  // searches a project's source hierarchy directly (no cache files)
-  def searchProject (classname :String)(rootDir :File) :Option[Match] = {
-    debug("Searching project: " + rootDir)
-
-    val searched = MSet[File]()
-    def search (dir :File) :Option[Match] = {
-      searched += dir // avoid double checking in the face of symlinks
-      val (dirs, files) = dir.listFiles partition(_.isDirectory)
-
-      // see if any files in this directory define our class
-      val searchFiles = files filter(isSource)
-      // searchFiles.view flatMap(searchFile(classname)) collectFirst { case x => x } orElse {
-      mapFirst(searchFiles, searchFile(classname)) orElse {
-        // recurse down our subdirectories in search of the class
-        val searchDirs = dirs filterNot(isSkipDir) filterNot(searched) map(_.getCanonicalFile)
-        mapFirst(searchDirs, search)
-      }
-    }
-
-    search(rootDir)
-  }
-
-  // searches a single file for the specified named class
-  def searchFile (classname :String)(file :File) :Option[Match] = {
-    try {
-      parse(file).types collectFirst {
-        case (name, fqName, lineno) if (name.toLowerCase == classname) =>
-          Match(file, fqName, lineno)
-      }
-    } catch {
-      case e => warning("Failed to parse " + file + ": " + e); None
-    }
-  }
-
-  // applies the mapping function to the supplied seq; returns first none-None, or None
-  def mapFirst[A,B] (seq :Seq[A], f :A => Option[B]) :Option[B] = {
-    val iter = seq.iterator
-    while (iter.hasNext) {
-      val r = f(iter.next)
-      if (r.isDefined) return r
-    }
-    None
   }
 }
