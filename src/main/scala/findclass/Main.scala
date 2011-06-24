@@ -219,10 +219,6 @@ object Main
     }
   }
 
-  // bits used by computeImportInfo to grok a file's existing imports
-  val PostPackageRe = "\\.[A-Z].*".r
-  def importToPackage (impline :String) = PostPackageRe.replaceFirstIn(impline, "")
-
   // determines the shared package component prefix (i.e. com.foo.bar and com.foo.baz share a
   // com.foo prefix (note, not a com.foo.ba prefix); also we ignore com as a shared prefix, so
   // com.foo and com.bar will report no shared prefix
@@ -232,22 +228,29 @@ object Main
   }
   def sansCom (comps :Seq[String]) = if (comps.head == "com") comps.tail else comps
 
+  // models an import statement, handles custom collation
+  case class Import (static :Boolean, fqName :String) {
+    lazy val toPackage = PostPackageRe.replaceFirstIn(fqName, "")
+    def compareTo (that :Import) = {
+      val cv = collate(fqName).compareTo(collate(that.fqName)) // java, javax, everything else
+      if (cv != 0) cv else {
+        val bv = that.static.compareTo(this.static) // statics after non-statics
+        if (bv != 0) bv else this.fqName.compareTo(that.fqName) // then alphabetical
+      }
+    }
+    private def collate (fqName :String) = if (fqName.startsWith("java.")) -2
+                                           else if (fqName.startsWith("javax.")) -1
+                                           else 0
+  }
+  val PostPackageRe = "\\.[A-Z].*".r
+
   // tracks a block of imports surrounded by blank lines
   case class ImportGroup (lineno :Int) {
-    val imports = ArrayBuffer[String]()
-    lazy val prefix = imports map(importToPackage) reduceLeft(sharedPrefix)
-    def matchLength (pkg :String) = sharedPrefix(prefix, pkg).length
+    val imports = ArrayBuffer[Import]()
+    lazy val prefix = imports map(_.toPackage) reduceLeft(sharedPrefix)
+    def matchLength (imp :Import) = sharedPrefix(prefix, imp.fqName).length
     def linenoAfter = lineno + imports.size
-    def linenoFor (pkg :String) = lineno + imports.count(i => collate(pkg, i) > 0)
-  }
-
-  // custom collation function that orders: java, javax, then other packages alphabetically
-  def collate (pkgA :String, pkgB :String) = {
-    def collValue (pkg :String) = if (pkg.startsWith("java.")) -2
-                                  else if (pkg.startsWith("javax.")) -1
-                                  else 0
-    val cv = collValue(pkgA).compareTo(collValue(pkgB))
-    if (cv == 0) pkgA.compareTo(pkgB) else cv
+    def linenoFor (imp :Import) = lineno + imports.count(_.compareTo(imp) > 0)
   }
 
   // extracts the fully qualified name for an import and then determines exactly where and how it
@@ -273,9 +276,13 @@ object Main
             accumg = ImportGroup(tok.lineno)
             igroups += accumg
           }
-          tok.nextToken() // read the next token which should a package of some sort
-          if (tok.sval == "static") tok.nextToken() // skip 'static' in Java static imports
-          accumg.imports += tok.sval
+          tok.nextToken() // the next token should either be 'static' or an fqName
+          var static = false
+          if (tok.sval == "static") { // note 'static' Java static imports
+            static = true
+            tok.nextToken()
+          }
+          accumg.imports += Import(static, tok.sval)
         }
 
         // if we see a class, etc. declaration, stop parsing import groups
@@ -288,20 +295,20 @@ object Main
       }
     }
 
-    val ipkg = importToPackage(m.fqName)
+    val newimp = Import(false, m.fqName)
     if (igroups.isEmpty) {
       // if we have no import groups, insert this import after the package statement
       "match " + m.fqName + " " + pkgLine + " preblank"
     } else {
-      val best = igroups maxBy(_.matchLength(ipkg))
+      val best = igroups maxBy(_.matchLength(newimp))
       if (best.imports contains(m.fqName)) "notneeded"
       // the best prefix may be degenerate (i.e. all of the groups match with zero length, so the
       // best is an arbitrary choice), in this case we want to create a new import group *unless*
       // the best group itself has unrelated packages in it (i.e. its internal shared prefix length
       // is zero); this probably means the file jams all imports together in one big group
-      else if (best.matchLength(ipkg) == 0 && best.prefix.length > 0) {
+      else if (best.matchLength(newimp) == 0 && best.prefix.length > 0) {
         // no matching group, so figure out where to insert based on collation between groups
-        igroups find(i => collate(ipkg, i.imports.head) < 0) match {
+        igroups find(_.imports.head.compareTo(newimp) > 0) match {
           // if we collate before a particular import group, place our import before that group's
           // first import, followed by a blank line
           case Some(ig) => "match " + m.fqName + " " + ig.lineno + " postblank"
@@ -312,7 +319,7 @@ object Main
       } else {
         // determine where in our matched import group we should be inserted (based on alphabetic
         // ordering, with "import static" elements always coming last)
-        "match " + m.fqName + " " + best.linenoFor(m.fqName) + " noblank"
+        "match " + m.fqName + " " + best.linenoFor(newimp) + " noblank"
       }
     }
   }
