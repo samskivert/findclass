@@ -52,7 +52,7 @@ position."
          (command (concat "java -jar " findclass-jar " " rebuild " -import "
                           class " " (buffer-file-name)))
          (output (split-string (shell-command-to-string command)))
-         (term (if (string= mode-name "Scala") "" else ";"))
+         (term (if (string= mode-name "Scala") "" ";"))
          (spoint (point)) ;; save the point
          )
     (if (string= (car output) "nomatch")
