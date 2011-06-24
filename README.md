@@ -100,5 +100,5 @@ because findclass returns the first type it can find with the requested name.
 So if you want `java.util.List` rather than `java.awt.List` when you ask for
 `List`, then you must order your to-be-searched directories accordingly.
 
-[findclass.jar]: https://raw.github.com/samskivert/findclass/master/bin/findclass.jar
+[findclass.jar]: http://samskivert.github.com/findclass/findclass.jar
 [findclass.el]: https://raw.github.com/samskivert/findclass/master/src/main/elisp/findclass.el
