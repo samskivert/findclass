@@ -68,7 +68,7 @@ position."
           (goto-line (string-to-number mline))
           (setq mneedadjust (<= (point) spoint))
           ;; insert the import statment and any necessary blank lines
-          (if (string= mblank "blank")
+          (if (string= mblank "preblank")
               (progn
                 (insert "\n")
                 (setq madjust (1+ madjust))))

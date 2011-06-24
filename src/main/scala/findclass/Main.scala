@@ -222,19 +222,38 @@ object Main
   // bits used by computeImportInfo to grok a file's existing imports
   val PostPackageRe = "\\.[A-Z].*".r
   def importToPackage (impline :String) = PostPackageRe.replaceFirstIn(impline, "")
-  def sharedPrefix (pkgA :String, pkgB :String) =
-    pkgA.split("\\.") zip(pkgB.split("\\.")) takeWhile(t => t._1 == t._2) map(_._1) mkString(".")
+
+  // determines the shared package component prefix (i.e. com.foo.bar and com.foo.baz share a
+  // com.foo prefix (note, not a com.foo.ba prefix); also we ignore com as a shared prefix, so
+  // com.foo and com.bar will report no shared prefix
+  def sharedPrefix (pkgA :String, pkgB :String) = {
+    val (compsA, compsB) = (sansCom(pkgA.split("\\.")), sansCom(pkgB.split("\\.")))
+    compsA zip(compsB) takeWhile(t => t._1 == t._2) map(_._1) mkString(".")
+  }
+  def sansCom (comps :Seq[String]) = if (comps.head == "com") comps.tail else comps
+
+  // tracks a block of imports surrounded by blank lines
   case class ImportGroup (lineno :Int) {
     val imports = ArrayBuffer[String]()
     lazy val prefix = imports map(importToPackage) reduceLeft(sharedPrefix)
     def matchLength (pkg :String) = sharedPrefix(prefix, pkg).length
+    def linenoAfter = lineno + imports.size
+    def linenoFor (pkg :String) = lineno + imports.count(i => collate(pkg, i) > 0)
+  }
+
+  // custom collation function that orders: java, javax, then other packages alphabetically
+  def collate (pkgA :String, pkgB :String) = {
+    def collValue (pkg :String) = if (pkg.startsWith("java.")) -2
+                                  else if (pkg.startsWith("javax.")) -1
+                                  else 0
+    val cv = collValue(pkgA).compareTo(collValue(pkgB))
+    if (cv == 0) pkgA.compareTo(pkgB) else cv
   }
 
   // extracts the fully qualified name for an import and then determines exactly where and how it
   // should be inserted into the reference file; will yield output of the form:
   // match fqClassName lineNo [<nil>|blank|postblank]
   def computeImportInfo (classname :String, refFile :File, m :Match) = {
-    // read the reference file and determine what line at which to insert our import
     var pkgLine = -1
     val igroups = ArrayBuffer[ImportGroup]()
     var accumg :ImportGroup = null
@@ -271,17 +290,29 @@ object Main
 
     val ipkg = importToPackage(m.fqName)
     if (igroups.isEmpty) {
-      "match " + m.fqName + " " + pkgLine + " postblank"
+      // if we have no import groups, insert this import after the package statement
+      "match " + m.fqName + " " + pkgLine + " preblank"
     } else {
       val best = igroups maxBy(_.matchLength(ipkg))
-      if (best.imports contains(m.fqName)) {
-        "notneeded"
-      } else if (best.matchLength(ipkg) == 0) {
-        // TODO: no matching group, so figure out where to insert based on collation between groups
-        "match " + m.fqName + " " + best.lineno + " blank"
+      if (best.imports contains(m.fqName)) "notneeded"
+      // the best prefix may be degenerate (i.e. all of the groups match with zero length, so the
+      // best is an arbitrary choice), in this case we want to create a new import group *unless*
+      // the best group itself has unrelated packages in it (i.e. its internal shared prefix length
+      // is zero); this probably means the file jams all imports together in one big group
+      else if (best.matchLength(ipkg) == 0 && best.prefix.length > 0) {
+        // no matching group, so figure out where to insert based on collation between groups
+        igroups find(i => collate(ipkg, i.imports.head) < 0) match {
+          // if we collate before a particular import group, place our import before that group's
+          // first import, followed by a blank line
+          case Some(ig) => "match " + m.fqName + " " + ig.lineno + " postblank"
+          // if we don't collate before any of the import groups, place our import after the last
+          // import group, with a preceding blank line
+          case None => "match " + m.fqName + " " + igroups.last.linenoAfter + " preblank"
+        }
       } else {
-        // TODO: determine position within this import group
-        "match " + m.fqName + " " + best.lineno + " noblank"
+        // determine where in our matched import group we should be inserted (based on alphabetic
+        // ordering, with "import static" elements always coming last)
+        "match " + m.fqName + " " + best.linenoFor(m.fqName) + " noblank"
       }
     }
   }
