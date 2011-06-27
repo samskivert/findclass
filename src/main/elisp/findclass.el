@@ -31,9 +31,7 @@
     symbol under the point as its argument."
   (interactive (list (read-from-minibuffer "Class: " (thing-at-point 'symbol))))
   (let* ((rebuild (if current-prefix-arg "-rebuild" ""))
-         (command (concat "java -jar " findclass-jar " " rebuild " "
-                          class " " (buffer-file-name)))
-         (output (split-string (shell-command-to-string command)))
+         (output (runfind class rebuild))
          )
     (if (string= (car output) "nomatch")
         (message (format "No match for class: %s" class))
@@ -48,12 +46,10 @@
 inserts an import statement for that class in the appropriate
 position."
   (interactive (list (read-from-minibuffer "Class: " (thing-at-point 'symbol))))
-  (let* ((rebuild (if current-prefix-arg "-rebuild" ""))
-         (command (concat "java -jar " findclass-jar " " rebuild " -import "
-                          class " " (buffer-file-name)))
-         (output (split-string (shell-command-to-string command)))
-         (term (if (string= mode-name "Scala") "" ";"))
+  (let* ((term (if (string= mode-name "Scala") "" ";"))
          (spoint (point)) ;; save the point
+         (rebuild (if current-prefix-arg "-rebuild" ""))
+         (output (runfind class (concat rebuild " -import")))
          )
     (if (string= (car output) "nomatch")
         (message (format "No match for class: %s" class)))
@@ -88,3 +84,20 @@ position."
       )
     )
   )
+
+(defun filter (condp lst)
+  (delq nil (mapcar (lambda (x) (and (funcall condp x) x)) lst)))
+
+(defun iswarn (line)
+  (and (> (length line) 4)
+       (string= (substring line 0 4) "WARN")))
+
+(defun runfind (class args)
+  (let*  ((command (concat "java -jar " findclass-jar " " args " " class " " (buffer-file-name)))
+          (cmdlines (split-string (shell-command-to-string command) "\n"))
+          (warns (filter 'iswarn cmdlines))
+          (output (split-string (car (filter (lambda (l) (not (iswarn l))) cmdlines))))
+          )
+    (if (not (zerop (length warns)))
+        (mapcar 'message warns))
+    output))
