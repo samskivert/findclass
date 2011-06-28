@@ -97,8 +97,8 @@ object Main
       fcpaths foreach rebuildIndex
     }
 
-    // first try searching the indices; if that fails, try searching the project directly
-    fcpaths mapFirst(checkIndex(classname)) orElse searchProject(classname)(proot)  match {
+    // first try searching the project directly; if that fails, try searching the indices
+    searchProject(classname)(proot) orElse fcpaths.mapFirst(checkIndex(classname)) match {
       case None => println("nomatch")
       case Some(m) => {
         if (opts.doImport) println(computeImportInfo(classname, refFile, m))
