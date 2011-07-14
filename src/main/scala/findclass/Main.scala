@@ -298,7 +298,7 @@ object Main
     val newimp = Import(false, m.fqName)
     if (igroups.isEmpty) {
       // if we have no import groups, insert this import after the package statement
-      "match " + m.fqName + " " + pkgLine + " preblank"
+      "match " + m.fqName + " " + (pkgLine+1) + " preblank"
     } else {
       val best = igroups maxBy(_.matchLength(newimp))
       if (best.imports contains(m.fqName)) "notneeded"
