@@ -46,6 +46,9 @@
 inserts an import statement for that class in the appropriate
 position."
   (interactive (list (read-from-minibuffer "Class: " (thing-at-point 'symbol))))
+  ;; save the current buffer (if needed) because findclass will read the file
+  ;; from the file-system to determine where to insert the import
+  (if (buffer-modified-p) (save-buffer))
   (let* ((term (if (string= mode-name "Scala") "" ";"))
          (spoint (point)) ;; save the point
          (rebuild (if current-prefix-arg "-rebuild" ""))
