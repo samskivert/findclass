@@ -301,7 +301,7 @@ object Main
       "match " + m.fqName + " " + (pkgLine+1) + " preblank"
     } else {
       val best = igroups maxBy(_.matchLength(newimp))
-      if (best.imports contains(m.fqName)) "notneeded"
+      if (best.imports contains(newimp)) "notneeded"
       // the best prefix may be degenerate (i.e. all of the groups match with zero length, so the
       // best is an arbitrary choice), in this case we want to create a new import group *unless*
       // the best group itself has unrelated packages in it (i.e. its internal shared prefix length
