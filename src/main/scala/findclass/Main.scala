@@ -235,7 +235,7 @@ object Main
       val cv = collate(fqName).compareTo(collate(that.fqName)) // java, javax, everything else
       if (cv != 0) cv else {
         val bv = that.static.compareTo(this.static) // statics after non-statics
-        if (bv != 0) bv else this.fqName.compareTo(that.fqName) // then alphabetical
+        if (bv != 0) bv else fqName.compareTo(that.fqName) // then alphabetical
       }
     }
     private def collate (fqName :String) = if (fqName.startsWith("java.")) -2
@@ -250,7 +250,7 @@ object Main
     lazy val prefix = imports map(_.toPackage) reduceLeft(sharedPrefix)
     def matchLength (imp :Import) = sharedPrefix(prefix, imp.fqName).length
     def linenoAfter = lineno + imports.size
-    def linenoFor (imp :Import) = lineno + imports.count(_.compareTo(imp) > 0)
+    def linenoFor (imp :Import) = lineno + imports.count(_.compareTo(imp) < 0)
   }
 
   // extracts the fully qualified name for an import and then determines exactly where and how it
