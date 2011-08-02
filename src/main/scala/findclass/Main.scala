@@ -189,6 +189,9 @@ object Main
   def searchProject (classname :String)(rootDir :File) :Option[Match] = {
     debug("Searching project: " + rootDir)
 
+    val rootPath = rootDir.getPath
+    def isSubDir (dir :File) = dir.getPath.startsWith(rootPath)
+
     val searched = MSet[File]()
     def search (dir :File) :Option[Match] = {
       searched += dir // avoid double checking in the face of symlinks
@@ -199,7 +202,8 @@ object Main
       // searchFiles.view flatMap(searchFile(classname)) collectFirst { case x => x } orElse {
       searchFiles mapFirst(searchFile(classname)) orElse {
         // recurse down our subdirectories in search of the class
-        val searchDirs = dirs filterNot(isSkipDir) filterNot(searched) map(_.getCanonicalFile)
+        val searchDirs = dirs filterNot(isSkipDir) filterNot(searched) map(
+          _.getCanonicalFile) filter(isSubDir) // we have to call isSubDir after getCanonicalFile
         searchDirs mapFirst(search)
       }
     }
