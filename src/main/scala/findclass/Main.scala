@@ -142,10 +142,16 @@ object Main
     try {
       val (good, bad) = paths map(new File(_)) partition(_.exists)
       bad foreach { d => warning(fcpath + " contains non-existent " + d) }
-      good foreach scanAndIndex(out)
+      good map(findSrcDir) foreach scanAndIndex(out)
     } finally {
       out.close
     }
+  }
+
+  // returns the src/main or src subdir of the supplied dir if it exists, or the dir
+  def findSrcDir (pdir :File) = {
+    val srcDir = new File(pdir, "src")
+    List(new File(srcDir, "main"), srcDir, pdir) find(_.isDirectory) get
   }
 
   // scans a source file tree and writes all classes to the supplied writer
