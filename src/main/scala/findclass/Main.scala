@@ -74,6 +74,7 @@ object Main
   def toker (reader :Reader) = {
     val tok = new StreamTokenizer(new BufferedReader(reader))
     tok.ordinaryChar('/') // wtf do they call this a comment char by default?
+    tok.wordChars('_', '_') // allow _ in class names
     tok.slashSlashComments(true)
     tok.slashStarComments(true)
     tok

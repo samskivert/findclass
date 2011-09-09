@@ -51,9 +51,19 @@ class Tests
                  parse(new StringReader(code), ".scala").types)
   }
 
+  @Test def testParseUnderscore {
+    val code = """
+      package foo.b;
+      class Foozle_Barzle {
+      }
+      """;
+    assertEquals(Seq(("Foozle_Barzle", "foo.b.Foozle_Barzle", 3)),
+                 parse(new StringReader(code), ".java").types)
+  }
+
   @Test def testImportToPackage {
-    assertEquals("foo.bar", importToPackage("foo.bar.Baz"))
-    assertEquals("foo.bar", importToPackage("foo.bar.Baz.Bizzle"))
+    assertEquals("foo.bar", new Import(false, "foo.bar.Baz").toPackage)
+    assertEquals("foo.bar", new Import(false, "foo.bar.Baz.Bizzle").toPackage)
   }
 
   @Test def testSharedPrefix {
