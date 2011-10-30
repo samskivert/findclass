@@ -12,21 +12,14 @@ import Util._
 /**
  * Provides a mapping from classname to its original source for a collection of dependencies.
  */
-class Index (fcpath :File)
+class Index (root :File)
 {
   /** Rebuilds the cached index file for this index. */
   def rebuild () {
-    val paths = Source.fromFile(fcpath).getLines.map(expandTwiddle)
-
-    val fcindex = indexFile(fcpath.getParentFile)
-    val out = new BufferedWriter(new FileWriter(fcindex))
-    try {
-      val (good, bad) = paths map(new File(_)) partition(_.exists)
-      bad foreach { d => warning(fcpath + " contains non-existent " + d) }
-      good map(findSrcDir) foreach scanAndIndex(out)
-    } finally {
-      out.close
-    }
+    debug("Rebuilding index: " + root)
+    val out = new BufferedWriter(new FileWriter(cacheFile(root)))
+    try scanAndIndex(out)(root)
+    finally out.close
   }
 
   /**
@@ -34,27 +27,19 @@ class Index (fcpath :File)
    * If the index doesn't exist, it is built.
    */
   def search (classname :String) :Option[Match] = {
-    debug("Checking index: " + fcpath)
+    debug("Checking index: " + root)
 
-    val fcindex = indexFile(fcpath.getParentFile)
-    if (!fcindex.exists) rebuild()
+    val fcache = cacheFile(root)
+    if (!fcache.exists) rebuild()
 
-    Source.fromFile(fcindex).getLines map(_.split(":")) collectFirst {
+    Source.fromFile(fcache).getLines map(_.split(":")) collectFirst {
       case Array(path, clazz, fqName, lineno) if (clazz == classname) =>
         Match(new File(path), fqName, lineno.toInt)
     }
   }
 
-  /** Returns the src/main or src subdir of the supplied dir if it exists, or the dir. */
-  private def findSrcDir (pdir :File) = {
-    val srcDir = new File(pdir, "src")
-    List(new File(srcDir, "main"), srcDir, pdir) find(_.isDirectory) get
-  }
-
   /** Scans a source file tree and writes all classes to the supplied writer. */
   private def scanAndIndex (out :BufferedWriter)(pdir :File) {
-    debug("Rebuilding index: " + pdir)
-
     val (dirs, files) = pdir.listFiles partition(_.isDirectory)
 
     files filter(isSource) foreach { f =>
@@ -72,5 +57,24 @@ class Index (fcpath :File)
     dirs filterNot(isSkipDir) foreach scanAndIndex(out)
   }
 
-  private def indexFile (parent :File) = new File(parent, ".findclass.cache")
+  private def cacheFile (parent :File) = {
+    val cacheDir = ensureDirExists(new File(dotDir, "cache"))
+    new File(cacheDir, parent.getAbsolutePath.replace(File.separatorChar, '@'))
+  }
+}
+
+object Index
+{
+  def fromConfig (file :File) :Iterator[Index] = {
+    val paths = Source.fromFile(file).getLines.map(expandTwiddle)
+    val (good, bad) = paths map(new File(_)) partition(_.exists)
+    bad foreach { d => warning(file + " contains non-existent " + d) }
+    good map(findSrcDir) map(new Index(_))
+  }
+
+  /** Returns the src/main or src subdir of the supplied dir if it exists, or the dir. */
+  private def findSrcDir (pdir :File) = {
+    val srcDir = new File(pdir, "src")
+    List(new File(srcDir, "main"), srcDir, pdir) find(_.isDirectory) get
+  }
 }

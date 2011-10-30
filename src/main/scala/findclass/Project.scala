@@ -14,11 +14,12 @@ import Util._
  * Models a project, which contains source code and has dependencies (which take the form of
  * searchable indices).
  */
-class Project (val root :File, fcpaths :Seq[File])
-{
+class Project (
+  /** This project's root directory. */
+  val root :File,
   /** This projects dependencies as searchable indices. */
-  lazy val depends :Seq[Index] = fcpaths.map(new Index(_))
-
+  val depends :Seq[Index]
+) {
   /** Searches this project's source hierarchy for the specified class. */
   def search (classname :String) :Option[Match] = {
     debug("Searching project: " + root)
@@ -65,18 +66,18 @@ object Project
    */
   def forFile (refFile :File) = {
     val refDir = refFile.getParentFile
-    var fcpaths = ArrayBuffer[File]()
+    var indexes = ArrayBuffer[Index]()
     var root, cdir = refDir
-    while (cdir != null && root == refDir) {
-      // if there's a config file in this directory, add it to our list
-      pathFile(cdir) foreach { fcpaths += _ }
+    while (cdir != null && cdir != homeDir && root == refDir) {
+      // if there's a config file in this directory, add its indices to our list
+      indexes ++= pathFile(cdir).toSeq flatMap(Index.fromConfig)
       // if we haven't already identified a project root and this directory either a) looks like a
       // root, or b) contains a .findclass.path file, call it the root
-      if (root == refDir && (isProjectRoot(cdir) || !fcpaths.isEmpty)) root = cdir
+      if (root == refDir && isProjectRoot(cdir)) root = cdir
       // now pop up a directory and loop
       cdir = cdir.getParentFile
     }
-    new Project(root, fcpaths.toSeq)
+    new Project(root, indexes.toSeq)
   }
 
   /** Looks for a build file or src directory to indicate that we're in the project root. */

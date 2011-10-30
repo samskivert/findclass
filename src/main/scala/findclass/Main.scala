@@ -36,6 +36,9 @@ object Main
 
   /** Does the actual finding of a class. */
   def findClass (classname :String, refFile :File, opts :Opts) {
+    // make sure our dot directory exists
+    ensureDirExists(dotDir)
+
     // locate the .findclass.path in our home directory, if one exists
     val home = new File(System.getProperty("user.home"))
     val hfcpath = pathFile(home)

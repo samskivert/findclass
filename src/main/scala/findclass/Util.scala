@@ -16,8 +16,14 @@ object Util {
   case class Match (file :File, fqName :String, lineno :Int)
 
   /** Expands ~ in paths, like a good unix utility should. */
-  def expandTwiddle (path :String) = path.replace("~", homeDir)
-  private val homeDir = System.getProperty("user.home")
+  def expandTwiddle (path :String) = path.replace("~", homePath)
+  private val homePath = System.getProperty("user.home")
+
+  /** The user's home directory. */
+  val homeDir = new File(homePath).getCanonicalFile
+
+  /** A directory where we store things. */
+  val dotDir = new File(homeDir, ".findclass")
 
   /** Returns Some(file) if the file exists, or None. */
   def fileToOpt (file :File) = if (file.exists) Some(file) else None
@@ -36,6 +42,15 @@ object Util {
   /** Identifies directories to skip when searching. */
   def isSkipDir (dir :File) = skipDirNames(dir.getName)
   private val skipDirNames = Set(".", "..", "CVS", ".svn", ".git", ".hg")
+
+  /** Ensures that the specified directory exists, creating it if needed. Issues a warning if a
+   * file exists in the directory's place.
+   * @return the directory, for chaining. */
+  def ensureDirExists (dir :File) :File = {
+    if (!dir.exists) dir.mkdir()
+    else if (!dir.isDirectory) warning(dir + " must be a directory.")
+    dir
+  }
 
   /** Extracts the suffix from a filename (.java for Foo.java). */
   def suffix (name :String) = name.lastIndexOf(".") match {
