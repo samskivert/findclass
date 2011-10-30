@@ -19,7 +19,13 @@ object Util {
   def expandTwiddle (path :String) = path.replace("~", homeDir)
   private val homeDir = System.getProperty("user.home")
 
-  /** Tokens that will appear prior to a type declaration by language file suffix. */
+  /** Returns Some(file) if the file exists, or None. */
+  def fileToOpt (file :File) = if (file.exists) Some(file) else None
+
+  /** Returns an option on the findclass config file in the supplied directory. */
+  def pathFile (parent :File) = fileToOpt(new File(parent, ".findclass.path"))
+
+  /** Tokens that will appear prior to a type declaration, by language file suffix. */
   val kindsBySuff = Map(".java"  -> Set("class", "enum", "interface", "@interface"),
                         ".scala" -> Set("class", "object", "trait"),
                         ".as"    -> Set("class", "interface"))
@@ -47,8 +53,8 @@ object Util {
     tok
   }
 
-  // applies the mapping function to the supplied seq; returns first non-None, or None
   class RichIterable[A] (seq :Iterable[A]) {
+    /** Applies the mapping function to the supplied seq; returns first non-None, or None. */
     def mapFirst[B] (f :A => Option[B]) :Option[B] = {
       val iter = seq.iterator
       while (iter.hasNext) {
@@ -60,5 +66,5 @@ object Util {
   }
   implicit def enrichIterable[A] (seq :Iterable[A]) = new RichIterable(seq)
   // we need this one as well as scalac won't go Array -> Iterable -> RichIterable
-  implicit def enrichArray[A] (seq :Array[A]) = new RichIterable(seq)
+  implicit def enrichArray[A] (arr :Array[A]) = new RichIterable(arr)
 }

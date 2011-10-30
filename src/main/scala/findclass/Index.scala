@@ -30,8 +30,8 @@ class Index (fcpath :File)
   }
 
   /**
-   * Searches for the specified classname in the index file corresponding to the supplied fcpath;
-   * if the index doesn't exist, it is built.
+   * Searches for the specified classname in the index file corresponding to the supplied fcpath.
+   * If the index doesn't exist, it is built.
    */
   def search (classname :String) :Option[Match] = {
     debug("Checking index: " + fcpath)
@@ -45,13 +45,13 @@ class Index (fcpath :File)
     }
   }
 
-  // returns the src/main or src subdir of the supplied dir if it exists, or the dir
+  /** Returns the src/main or src subdir of the supplied dir if it exists, or the dir. */
   private def findSrcDir (pdir :File) = {
     val srcDir = new File(pdir, "src")
     List(new File(srcDir, "main"), srcDir, pdir) find(_.isDirectory) get
   }
 
-  // scans a source file tree and writes all classes to the supplied writer
+  /** Scans a source file tree and writes all classes to the supplied writer. */
   private def scanAndIndex (out :BufferedWriter)(pdir :File) {
     debug("Rebuilding index: " + pdir)
 
