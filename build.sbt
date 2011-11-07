@@ -1,8 +1,10 @@
+organization := "com.samskivert"
+
 name := "findclass"
 
 version := "1.0-SNAPSHOT"
 
-scalaVersion := "2.9.0-1"
+scalaVersion := "2.9.1"
 
 libraryDependencies ++= Seq(
   "com.novocode" % "junit-interface" % "0.7" % "test"
