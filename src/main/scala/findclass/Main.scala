@@ -48,7 +48,7 @@ object Main
     debug("Finding class '" + classname + "' in " + project.root)
 
     // obtain our indices
-    val indexes = project.depends ++ hfcpath.map(new Index(_)).toSeq
+    val indexes = project.depends ++ hfcpath.toSeq.flatMap(Index.fromConfig)
     // if an index rebuild was requested, do so now
     if (opts.doRebuild) indexes foreach(_.rebuild)
 
