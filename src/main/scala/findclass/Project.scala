@@ -68,7 +68,8 @@ object Project
     val refDir = refFile.getParentFile
     var indexes = ArrayBuffer[Index]()
     var root, cdir = refDir
-    while (cdir != null && cdir != homeDir && root == refDir) {
+    // keep going until we hit our home directory or the root of the file system
+    while (cdir != null && cdir != homeDir) {
       // if there's a config file in this directory, add its indices to our list
       indexes ++= pathFile(cdir).toSeq flatMap(Index.fromConfig)
       // if we haven't already identified a project root and this directory either a) looks like a
