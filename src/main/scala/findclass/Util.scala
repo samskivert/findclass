@@ -34,7 +34,8 @@ object Util {
   /** Tokens that will appear prior to a type declaration, by language file suffix. */
   val kindsBySuff = Map(".java"  -> Set("class", "enum", "interface", "@interface"),
                         ".scala" -> Set("class", "object", "trait"),
-                        ".as"    -> Set("class", "interface"))
+                        ".as"    -> Set("class", "interface"),
+                        ".cs"    -> Set("class", "interface", "struct"))
 
   /** Returns true if the supplied file is a source file that we grok. */
   def isSource (file :File) = kindsBySuff.contains(suffix(file.getName))

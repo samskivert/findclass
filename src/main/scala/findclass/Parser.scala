@@ -17,7 +17,7 @@ object Parser
     val members = ArrayBuffer[Component]()
     def fqName :String = parent.mkFqName(name)
     def dump (indent :String = "") {
-      println(indent + name)
+      println(indent + name + ":" + lineno)
       members foreach { _.dump(indent + "  ") }
     }
     def types :Seq[(String, String,Int)] =
@@ -35,13 +35,16 @@ object Parser
 
   private def parse (reader :Reader, suff :String) :Component = {
     val kinds = kindsBySuff.getOrElse(suff, Set[String]())
-    val tok = toker(reader)
     val stack = MStack[Component]()
     val root = new RootComponent
     var accum :Component = root
     var last :Component = null
     var prevtok :String = null
     var skipped = 0
+
+    val tok = toker(reader)
+    // treat # as a line comment starter in C# so that we ignore compiler directives
+    if (suff == ".cs") tok.commentChar('#')
 
     while (tok.nextToken() != StreamTokenizer.TT_EOF) {
       if (tok.ttype == '{') {
@@ -60,7 +63,7 @@ object Parser
           skipped -= 1
         }
       } else if (tok.ttype == StreamTokenizer.TT_WORD) {
-        if (prevtok == "package") {
+        if (prevtok == "package" || prevtok == "namespace") {
           last = Component(tok.sval, accum, false, tok.lineno)
           accum.members += last
           // if the next token is a semicolon, pretend the rest of the file is one big block
