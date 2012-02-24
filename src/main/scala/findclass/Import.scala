@@ -91,7 +91,7 @@ object Import
   private val PostPackageRe = "\\.[A-Z].*".r
 
   /** Models an import statement, handles custom collation. */
-  private case class Import (static :Boolean, fqName :String) {
+  private[findclass] case class Import (static :Boolean, fqName :String) {
     lazy val toPackage = PostPackageRe.replaceFirstIn(fqName, "")
     def compareTo (that :Import) = {
       val cv = collate(fqName).compareTo(collate(that.fqName)) // java, javax, everything else
@@ -119,7 +119,7 @@ object Import
    * com.foo prefix (note, not a com.foo.ba prefix); also we ignore com as a shared prefix, so
    * com.foo and com.bar will report no shared prefix.
    */
-  private def sharedPrefix (pkgA :String, pkgB :String) = {
+  private[findclass] def sharedPrefix (pkgA :String, pkgB :String) = {
     val (compsA, compsB) = (sansCom(pkgA.split("\\.")), sansCom(pkgB.split("\\.")))
     compsA zip(compsB) takeWhile(t => t._1 == t._2) map(_._1) mkString(".")
   }
