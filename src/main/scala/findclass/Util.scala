@@ -35,7 +35,7 @@ object Util {
   val kindsBySuff = Map(".java"  -> Set("class", "enum", "interface", "@interface"),
                         ".scala" -> Set("class", "object", "trait"),
                         ".as"    -> Set("class", "interface"),
-                        ".cs"    -> Set("class", "interface", "struct"))
+                        ".cs"    -> Set("class", "enum", "interface", "struct"))
 
   /** Returns true if the supplied file is a source file that we grok. */
   def isSource (file :File) = kindsBySuff.contains(suffix(file.getName))
