@@ -9,6 +9,7 @@ import org.junit.Assert._
 import org.junit.Test
 
 import findclass.Main._
+import findclass.Import._
 
 class Tests
 {
@@ -27,7 +28,7 @@ class Tests
       """;
     assertEquals(Seq(("Foozle", "foo.b.Foozle", 6), ("Barzle", "foo.b.Foozle.Barzle", 7),
                      ("Bizzle", "foo.b.Foozle.Bizzle", 8)),
-                 parse(new StringReader(code), ".java").types)
+                 Parser.parse(new StringReader(code), ".java").types)
   }
 
   @Test def testScalaParse {
@@ -48,7 +49,20 @@ class Tests
       """;
     assertEquals(Seq(("Foo", "foo.bar.Foo", 6), ("Barzle", "foo.bar.Foo.Barzle", 7),
                      ("Bizzle", "foo.bar.Foo.Bizzle", 9), ("Bangle", "foo.bar.Foo.Bangle", 10)),
-                 parse(new StringReader(code), ".scala").types)
+                 Parser.parse(new StringReader(code), ".scala").types)
+  }
+
+  @Test def testScalaPkgParse {
+    val code = """
+      package foo
+      package bar
+      import foo.baz.Biffle;
+      /** Some comments. */
+      trait Foo {
+      }
+      """;
+    assertEquals(Seq(("Foo", "foo.bar.Foo", 6)),
+                 Parser.parse(new StringReader(code), ".scala").types)
   }
 
   @Test def testParseUnderscore {
@@ -58,7 +72,7 @@ class Tests
       }
       """;
     assertEquals(Seq(("Foozle_Barzle", "foo.b.Foozle_Barzle", 3)),
-                 parse(new StringReader(code), ".java").types)
+                 Parser.parse(new StringReader(code), ".java").types)
   }
 
   @Test def testImportToPackage {

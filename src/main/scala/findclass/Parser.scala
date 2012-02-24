@@ -33,7 +33,8 @@ object Parser
   def parse (file :File) :Component =
     parse(new FileReader(file), suffix(file.getName))
 
-  private def parse (reader :Reader, suff :String) :Component = {
+  /** Parses the source in `reader` which hails from a source file with suffix `suff`. */
+  def parse (reader :Reader, suff :String) :Component = {
     val kinds = kindsBySuff.getOrElse(suff, Set[String]())
     val stack = MStack[Component]()
     val root = new RootComponent
@@ -66,8 +67,10 @@ object Parser
         if (prevtok == "package" || prevtok == "namespace") {
           last = Component(tok.sval, accum, false, tok.lineno)
           accum.members += last
-          // if the next token is a semicolon, pretend the rest of the file is one big block
-          if (tok.nextToken() == ';') {
+          // if the next token is a semicolon (or if this is Scala and the next token is not an
+          // open bracket), pretend the rest of the file is one big block
+          val ntok = tok.nextToken()
+          if (ntok == ';' || (ntok != '{' && suff == ".scala")) {
             stack.push(accum)
             accum = last
             last = null
